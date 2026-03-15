@@ -144,7 +144,7 @@
         },
         {
             "parameters": {
-                "jsCode": "// Collect all new releases into a single payload for one Gemini call\nconst items = $input.all();\n\nconst releases = items.map((item, i) => ({\n  id: i,\n  artist: item.json.artist,\n  track: item.json.track,\n  genre: item.json.genre,\n  country: item.json.country,\n  year: item.json.year,\n  sourceUrl: item.json.sourceUrl,\n  imageUrl: item.json.imageUrl\n}));\n\n// Pass as a single item with all releases embedded\nreturn [{ json: { releases } }];"
+                "jsCode": "// Load favorites from shared static data (managed by the Bot Manager workflow)\nconst store = $getWorkflowStaticData('global');\n\nconst favBands  = store.favBands  || ['Vildhjarta', 'Allt', 'Imminence', 'Karmanjaka', \"Humanity's Last Breath\", 'Invent Animate', 'Currents', 'Lorna Shore', 'Spiritbox', 'Sleep Token', 'Bring Me The Horizon'];\nconst favGenres = store.favGenres || ['Djent', 'Progressive Metalcore', 'Thall', 'Progressive Metal', 'Deathcore', 'Post-Hardcore'];\nconst notGenres = store.notGenres || ['Acoustic', 'Classic Rock', 'Pop Metal', 'Nu Metal', 'Rap Metal'];\n\n// Persist defaults if first time\nif (!store.favBands)  store.favBands  = favBands;\nif (!store.favGenres) store.favGenres = favGenres;\nif (!store.notGenres) store.notGenres = notGenres;\n\nconst items = $input.all();\nconst releases = items.map((item, i) => ({\n  id: i,\n  artist:    item.json.artist,\n  track:     item.json.track,\n  genre:     item.json.genre,\n  country:   item.json.country,\n  year:      item.json.year,\n  sourceUrl: item.json.sourceUrl,\n  imageUrl:  item.json.imageUrl\n}));\n\nreturn [{ json: { releases, favBands, favGenres, notGenres } }];"
             },
             "name": "Batch Releases For Gemini",
             "type": "n8n-nodes-base.code",
@@ -157,7 +157,7 @@
         {
             "parameters": {
                 "promptType": "define",
-                "text": "=You are a metal music curator. A listener's taste profile:\n- Favorite bands: Vildhjarta, Allt, Imminence, Karmanjaka, Humanity's Last Breath, Invent Animate, Currents, Lorna Shore, Spiritbox, Sleep Token, Bring Me The Horizon\n- Favorite genres: Djent, Progressive Metalcore, Deathcore, Post-Hardcore, Heavy Electronic Metal\n- NOT interested in: pure Acoustic, Classic Rock, Pop Metal, Nu Metal, Rap Metal\n\nHere are the new releases to evaluate:\n{{ JSON.stringify($json.releases) }}\n\nReturn ONLY a JSON array of the releases this listener would genuinely enjoy. For each, include:\n- id (original id from input)\n- artist\n- track\n- genre\n- country\n- year\n- sourceUrl\n- imageUrl\n- description (2 sentences, enthusiastic, why they'd like it)\n\nIf none are relevant, return an empty array [].\nReturn raw JSON only, no markdown, no explanation.",
+                "text": "=You are a metal music curator. A listener's taste profile:\n- Favorite bands: {{ $json.favBands.join(', ') }}\n- Favorite genres: {{ $json.favGenres.join(', ') }}\n- NOT interested in: {{ $json.notGenres.join(', ') }}\n\nHere are the new releases to evaluate:\n{{ JSON.stringify($json.releases) }}\n\nReturn ONLY a JSON array of the releases this listener would genuinely enjoy. For each, include:\n- id (original id from input)\n- artist\n- track\n- genre\n- country\n- year\n- sourceUrl\n- imageUrl\n- description (2 sentences, enthusiastic, why they'd like it)\n\nIf none are relevant, return an empty array [].\nReturn raw JSON only, no markdown, no explanation.",
                 "options": {}
             },
             "name": "Basic LLM Chain",
@@ -236,6 +236,97 @@
                 1150,
                 300
             ]
+        },
+        {
+            "parameters": {
+                "updates": [
+                    "message"
+                ],
+                "additionalFields": {}
+            },
+            "name": "Telegram Trigger",
+            "type": "n8n-nodes-base.telegramTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                250,
+                700
+            ],
+            "webhookId": "coreilike-bot-manager",
+            "credentials": {
+                "telegramApi": {
+                    "id": "={{ $env.TELEGRAM_CREDENTIAL_ID }}",
+                    "name": "={{ $env.TELEGRAM_CREDENTIAL_NAME }}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "=The user sent this message to their music bot:\n\"{{ $json.message.text }}\"\n\nThe bot manages three lists:\n- favBands: favorite artist/band names\n- favGenres: favorite music genres\n- notGenres: genres they dislike\n\nParse the user's intent and return ONLY this JSON, no markdown, no explanation:\n{\n  \"action\": \"add\" | \"remove\" | \"list\" | \"unknown\",\n  \"listType\": \"favBands\" | \"favGenres\" | \"notGenres\" | null,\n  \"value\": \"the band or genre name, normalized\" | null,\n  \"reply\": \"a friendly short confirmation message to send back to the user\"\n}\n\nExamples:\n- \"add band Spiritbox\" \u2192 action:add, listType:favBands, value:\"Spiritbox\"\n- \"remove genre Nu Metal\" \u2192 action:remove, listType:notGenres, value:\"Nu Metal\"\n- \"I don't like Rap Metal\" \u2192 action:add, listType:notGenres, value:\"Rap Metal\"\n- \"add Lorna Shore to my favorites\" \u2192 action:add, listType:favBands, value:\"Lorna Shore\"\n- \"show my favorites\" \u2192 action:list, listType:null\n- \"what bands are you tracking\" \u2192 action:list, listType:null",
+                "options": {}
+            },
+            "name": "Parse Intent",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                550,
+                700
+            ]
+        },
+        {
+            "parameters": {
+                "model": "llama-3.3-70b-versatile",
+                "options": {
+                    "temperature": 0.1
+                }
+            },
+            "name": "Groq Chat Model (Bot)",
+            "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+            "typeVersion": 1,
+            "position": [
+                550,
+                870
+            ],
+            "credentials": {
+                "groqApi": {
+                    "id": "={{ $env.GROQ_CREDENTIAL_ID }}",
+                    "name": "={{ $env.GROQ_CREDENTIAL_NAME }}"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse Groq's intent response and update static data accordingly\nconst raw = $input.first().json.text || '';\n\nlet intent;\ntry {\n  const clean = raw.replace(/```json|```/g, '').trim();\n  intent = JSON.parse(clean);\n} catch(e) {\n  return [{ json: { reply: \"Sorry, I didn't understand that. Try: 'add band Spiritbox' or 'remove genre Nu Metal'\" } }];\n}\n\n// NOTE: Static data here is scoped to THIS workflow.\n// To share with the scraper, we use a workaround: store in a shared key\n// by writing to n8n's global static data via the same key name.\nconst store = $getWorkflowStaticData('global');\n\n// Load current lists with defaults\nconst favBands  = store.favBands  || ['Vildhjarta', 'Allt', 'Imminence', 'Karmanjaka', \"Humanity's Last Breath\", 'Invent Animate', 'Currents', 'Lorna Shore', 'Spiritbox', 'Sleep Token', 'Bring Me The Horizon'];\nconst favGenres = store.favGenres || ['Djent', 'Progressive Metalcore', 'Thall', 'Progressive Metal', 'Deathcore', 'Post-Hardcore'];\nconst notGenres = store.notGenres || ['Acoustic', 'Classic Rock', 'Pop Metal', 'Nu Metal', 'Rap Metal'];\n\nconst lists = { favBands, favGenres, notGenres };\n\nlet reply = intent.reply || 'Done!';\n\nif (intent.action === 'add' && intent.listType && intent.value) {\n  const list = lists[intent.listType];\n  if (!list.map(x => x.toLowerCase()).includes(intent.value.toLowerCase())) {\n    list.push(intent.value);\n    store[intent.listType] = list;\n  } else {\n    reply = `\"${intent.value}\" is already in your ${intent.listType} list.`;\n  }\n}\nelse if (intent.action === 'remove' && intent.listType && intent.value) {\n  const before = lists[intent.listType].length;\n  lists[intent.listType] = lists[intent.listType].filter(\n    x => x.toLowerCase() !== intent.value.toLowerCase()\n  );\n  store[intent.listType] = lists[intent.listType];\n  if (lists[intent.listType].length === before) {\n    reply = `\"${intent.value}\" was not found in your ${intent.listType} list.`;\n  }\n}\nelse if (intent.action === 'list') {\n  reply = `\ud83c\udfb8 *Favorite Bands:*\\n${favBands.join(', ')}\\n\\n\ud83c\udfb5 *Favorite Genres:*\\n${favGenres.join(', ')}\\n\\n\ud83d\udeab *Not Interested In:*\\n${notGenres.join(', ')}`;\n}\nelse if (intent.action === 'unknown') {\n  reply = \"I didn't get that. Try:\\n\u2022 'add band Sleep Token'\\n\u2022 'remove genre Nu Metal'\\n\u2022 'I don't like Rap Metal'\\n\u2022 'show my favorites'\";\n}\n\nreturn [{ json: { reply, chatId: $input.all()[0]?.json?.message?.chat?.id } }];"
+            },
+            "name": "Update Favorites",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                850,
+                700
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
+                "text": "={{ $json.reply }}",
+                "options": {
+                    "parse_mode": "Markdown"
+                }
+            },
+            "name": "Send Reply",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.1,
+            "position": [
+                1100,
+                700
+            ],
+            "credentials": {
+                "telegramApi": {
+                    "id": "={{ $env.TELEGRAM_CREDENTIAL_ID }}",
+                    "name": "={{ $env.TELEGRAM_CREDENTIAL_NAME }}"
+                }
+            }
         }
     ],
     "connections": {
@@ -317,18 +408,6 @@
                 ]
             ]
         },
-        "Gemini Says Relevant?": {
-            "main": [
-                [
-                    {
-                        "node": "Send Favorite Alert",
-                        "type": "main",
-                        "index": 0
-                    }
-                ],
-                []
-            ]
-        },
         "Batch Releases For Gemini": {
             "main": [
                 [
@@ -367,6 +446,50 @@
                 [
                     {
                         "node": "Has New Releases?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Telegram Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Intent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Intent": {
+            "main": [
+                [
+                    {
+                        "node": "Update Favorites",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Groq Chat Model (Bot)": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Parse Intent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Favorites": {
+            "main": [
+                [
+                    {
+                        "node": "Send Reply",
                         "type": "main",
                         "index": 0
                     }
