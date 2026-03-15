@@ -57,7 +57,7 @@
         },
         {
             "parameters": {
-            "jsCode": "// Check for favorite bands\nconst favoriteBands = [\n 'vildhjarta', 'allt', 'imminence', 'karmanjakah', 'humanity's last breath', 'invent animate', 'currents', 'lorna shore', 'peur', 'before i turn', 'spiritbox', 'sleep token', 'bring me the horizon'\n];\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const searchText = (data.artist + ' ' + data.track + ' ' + data.genre).toLowerCase();\n\n  const isFavorite = favoriteBands.some(band => searchText.includes(band.toLowerCase()));\n\n  results.push({\n    json: {\n      ...data,\n      isFavorite: isFavorite,\n      matchReason: isFavorite ? 'Favorite band detected' : 'New release'\n    }\n  });\n}\n\nreturn results;"
+            "jsCode": "// Check for favorite bands\nconst favoriteBands = [\n 'vildhjarta', 'allt', 'imminence', 'karmanjakah', 'humanitys last breath', 'invent animate', 'currents', 'lorna shore', 'peur', 'before i turn', 'spiritbox', 'sleep token', 'bring me the horizon'\n];\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const searchText = (data.artist + ' ' + data.track + ' ' + data.genre).toLowerCase();\n\n  const isFavorite = favoriteBands.some(band => searchText.includes(band.toLowerCase()));\n\n  results.push({\n    json: {\n      ...data,\n      isFavorite: isFavorite,\n      matchReason: isFavorite ? 'Favorite band detected' : 'New release'\n    }\n  });\n}\n\nreturn results;"
             },
             "name": "Check Favorites",
             "type": "n8n-nodes-base.code",
