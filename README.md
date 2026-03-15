@@ -29,7 +29,7 @@ Schedule Trigger
   → Has New Releases?           # stops flow if nothing new
   → Batch Releases For Gemini   # loads taste profile from static data
   → Basic LLM Chain (Groq)      # single AI call for the full batch
-  → Split Gemini Results        # parses JSON response, emits one item/release
+  → Groq Results                # parses JSON response, emits one item/release
   → Send Favorite Alert         # Telegram message per relevant release
 
 ── BOT MANAGER BRANCH (always listening) ────────────────────────────────────
