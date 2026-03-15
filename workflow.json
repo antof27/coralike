@@ -7,7 +7,7 @@
                     "interval": [
                         {
                             "field": "hours",
-                            "hoursInterval": 6
+                            "hoursInterval": 1
                         }
                     ]
                 }
@@ -15,12 +15,52 @@
             "name": "Schedule Trigger",
             "type": "n8n-nodes-base.scheduleTrigger",
             "typeVersion": 1.2,
-            "position": [250, 300]
+            "position": [
+                250,
+                300
+            ]
         },
         {
             "parameters": {
-                "method": "GET",
-                "url": "https://coreradio.online/news/",
+                "jsCode": "// Decide how many pages to scrape.\n// On first run (no seen URLs stored yet), scrape all pages (up to MAX_PAGES).\n// On subsequent runs, scrape only page 1 to catch the latest releases.\n\nconst store = $getWorkflowStaticData('global');\nconst seenUrls = store.seenUrls || [];\n\nconst isFirstRun = seenUrls.length === 0;\nconst MAX_PAGES = isFirstRun ? 50 : 1;  // adjust 50 to however deep you want the first scrape\n\nconst pages = [];\nfor (let i = 0; i < MAX_PAGES; i++) {\n  pages.push({\n    json: {\n      page: i,\n      offset: i * 15,   // coreradio uses 15 items per page\n      isFirstRun: isFirstRun\n    }\n  });\n}\n\nreturn pages;"
+            },
+            "name": "Decide Pages To Fetch",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://coreradio.online/",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "do",
+                            "value": "cat"
+                        },
+                        {
+                            "name": "category",
+                            "value": "new"
+                        },
+                        {
+                            "name": "cstart",
+                            "value": "={{ $json.offset }}"
+                        },
+                        {
+                            "name": "set_new_sort",
+                            "value": "dle_sort_cat"
+                        },
+                        {
+                            "name": "set_sort_sort",
+                            "value": "desc"
+                        }
+                    ]
+                },
                 "options": {
                     "response": {
                         "response": {
@@ -41,42 +81,91 @@
                     }
                 }
             },
-            "name": "Fetch Coreradio HTML",
+            "name": "Fetch Coreradio Page",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
-            "position": [450, 300]
+            "position": [
+                650,
+                300
+            ]
         },
         {
             "parameters": {
-                "jsCode": "// Parse Coreradio HTML to extract releases\nconst html = $input.first().json.body;\nconst releases = [];\n\n// Primary regex: match shortstory blocks from DLE CMS\nconst itemRegex = /<div class=\"shortstory\">[\\s\\S]*?<h2 class=\"title\">[\\s\\S]*?<a href=\"([^\"]+)\">([\\s\\S]*?)<\\/a>[\\s\\S]*?<\\/h2>[\\s\\S]*?<div class=\"shortimg\">[\\s\\S]*?<img[^>]+src=\"([^\"]+)\"[\\s\\S]*?<\\/div>[\\s\\S]*?<div class=\"maincont\">([\\s\\S]*?)<\\/div>/g;\n\nlet match;\nwhile ((match = itemRegex.exec(html)) !== null) {\n  const url = match[1];\n  const titleHtml = match[2];\n  const imageUrl = match[3];\n  const contentHtml = match[4];\n\n  const title = titleHtml.replace(/<[^>]+>/g, '').trim();\n\n  const genreMatch = contentHtml.match(/<b>Genre:<\\/b>\\s*([^<]+)/);\n  const countryMatch = contentHtml.match(/<b>Country:<\\/b>\\s*([^<]+)/);\n  const qualityMatch = contentHtml.match(/<b>Quality:<\\/b>\\s*([^<]+)/);\n\n  let artist = '', track = '', type = '', year = '';\n  const titleMatch = title.match(/^(.+?)\\s+-\\s+(.+?)\\s*(?:\\[([^\\]]+)\\])?\\s*\\((\\d{4})\\)/);\n\n  if (titleMatch) {\n    [, artist, track, type, year] = titleMatch;\n  } else {\n    const parts = title.split(' - ');\n    if (parts.length >= 2) {\n      artist = parts[0];\n      track = parts.slice(1).join(' - ');\n    } else {\n      artist = title;\n      track = 'Unknown';\n    }\n  }\n\n  releases.push({\n    json: {\n      artist: artist.trim(),\n      track: track.trim(),\n      type: (type || '').trim(),\n      year: year || new Date().getFullYear().toString(),\n      genre: genreMatch ? genreMatch[1].trim() : 'Unknown',\n      country: countryMatch ? countryMatch[1].trim() : 'Unknown',\n      quality: qualityMatch ? qualityMatch[1].trim() : 'Unknown',\n      imageUrl: imageUrl,\n      sourceUrl: url,\n      fullTitle: title,\n      scrapedAt: new Date().toISOString()\n    }\n  });\n}\n\n// Fallback: look for Spotify / Apple Music cover art patterns\nif (releases.length === 0) {\n  const altRegex = /<img[^>]+src=\"(https:\\/\\/(?:i\\.scdn\\.co|is\\d+-ssl\\.mzstatic\\.com)[^\"]+)\"[^>]*>[\\s\\S]*?<b>Genre:<\\/b>\\s*([^<]+)[\\s\\S]*?<b>Country:<\\/b>\\s*([^<]+)[\\s\\S]*?<div[^>]*>([^<]+(?:\\[[^\\]]+\\])?\\s*\\(\\d{4}\\))<\\/div>/g;\n\n  while ((match = altRegex.exec(html)) !== null) {\n    const imageUrl = match[1];\n    const genre = match[2].trim();\n    const country = match[3].trim();\n    const title = match[4].trim();\n\n    let artist = '', track = '', type = '', year = '';\n    const titleMatch = title.match(/^(.+?)\\s+-\\s+(.+?)\\s*(?:\\[([^\\]]+)\\])?\\s*\\((\\d{4})\\)/);\n\n    if (titleMatch) {\n      [, artist, track, type, year] = titleMatch;\n    } else {\n      const parts = title.split(' - ');\n      artist = parts[0] || 'Unknown';\n      track = parts.slice(1).join(' - ') || 'Unknown';\n    }\n\n    releases.push({\n      json: {\n        artist: artist.trim(),\n        track: track.trim(),\n        type: (type || '').trim(),\n        year: year || new Date().getFullYear().toString(),\n        genre: genre,\n        country: country,\n        quality: 'MP3, 320 kbps / FLAC',\n        imageUrl: imageUrl,\n        sourceUrl: 'https://coreradio.online/news/',\n        fullTitle: title,\n        scrapedAt: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn releases;"
+                "jsCode": "\n// Ported from Python CoreRadioClient - uses the same logic that is proven to work.\n// The site uses DataLife Engine (DLE). Each release block contains:\n//   - an <img> whose alt attribute holds the full title \"Band - Album [type] (year)\"\n//   - nearby text with \"Genre:\", \"Country:\", \"Quality:\"\n//   - an <a href> pointing to the release page\n\nconst const html = $input.first().json.body ?? $input.first().json.data ?? $input.first().json.html ?? $input.first().json.text ?? '';\n\n// \u2500\u2500 Helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\nfunction parseTitle(raw) {\n  // Remove backslash escapes\n  raw = raw.replace(/\\\\/g, '');\n  // Try dash variants\n  for (const sep of [' - ', ' \\u2013 ', ' \\u2014 ']) {\n    const idx = raw.indexOf(sep);\n    if (idx !== -1) {\n      const band  = raw.slice(0, idx).trim();\n      const rest  = raw.slice(idx + sep.length).trim();\n      // Extract [type] and (year) from the rest\n      const typeMatch = rest.match(/\\[([^\\]]+)\\]/);\n      const yearMatch = rest.match(/\\((\\d{4})\\)/);\n      // Clean album: remove trailing [type] and (year)\n      const album = rest.replace(/\\s*\\[[^\\]]+\\]\\s*/, '').replace(/\\s*\\(\\d{4}\\)\\s*/, '').trim();\n      return {\n        band,\n        album,\n        type: typeMatch ? typeMatch[1] : '',\n        year: yearMatch ? yearMatch[1] : new Date().getFullYear().toString()\n      };\n    }\n  }\n  return { band: raw.trim(), album: 'Unknown', type: '', year: new Date().getFullYear().toString() };\n}\n\nfunction extractMeta(text) {\n  const genreMatch   = text.match(/Genre:\\s*(.+?)(?:Country:|Quality:|$)/s);\n  const countryMatch = text.match(/Country:\\s*(.+?)(?:Quality:|$)/s);\n  const qualityMatch = text.match(/Quality:\\s*(.+?)$/s);\n\n  const genres = genreMatch\n    ? genreMatch[1].split(/[\\/,]/).map(g => g.trim()).filter(Boolean)\n    : [];\n\n  return {\n    genres,\n    genre:   genres.join(', ') || 'Unknown',\n    country: countryMatch ? countryMatch[1].trim() : 'Unknown',\n    quality: qualityMatch ? qualityMatch[1].trim() : 'Unknown',\n  };\n}\n\n// \u2500\u2500 Parse \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n// Split HTML into chunks around every occurrence of \"Genre:\" so we operate\n// on individual release blocks rather than the whole page at once.\n// Each chunk starts just before an img and ends before the next Genre: block.\n\nconst releases = [];\n\n// Find all img alt values that look like \"Band - Album\" titles\nconst imgAltRegex = /<img[^>]+alt=\"([^\"]*\\s[-\\u2013\\u2014]\\s[^\"]+)\"[^>]*>/gi;\nlet imgMatch;\n\nwhile ((imgMatch = imgAltRegex.exec(html)) !== null) {\n  const altText  = imgMatch[1];\n  const imgStart = imgMatch.index;\n\n  // Only process alts that look like titles (contain \" - \" or dashes)\n  if (!altText.match(/\\s[-\\u2013\\u2014]\\s/)) continue;\n\n  // Grab a window of HTML around this img to find metadata (up to 2000 chars ahead)\n  const window = html.slice(imgStart, imgStart + 2000);\n\n  // Skip if no Genre: in this window\n  if (!/Genre:/i.test(window)) continue;\n\n  // Extract cover URL from this same img tag\n  const srcMatch = imgMatch[0].match(/(?:data-src|src)=\"([^\"]+)\"/i);\n  const coverUrl = srcMatch ? srcMatch[1] : '';\n\n  // Skip placeholder images\n  if (coverUrl.includes('no_image') || coverUrl.includes('coredark')) continue;\n\n  // Find nearest <a href> before or after the img (within the window)\n  const linkMatch = window.match(/<a\\s+(?:[^>]*\\s+)?href=\"([^\"]+)\"/i);\n  const postUrl   = linkMatch ? linkMatch[1] : '';\n\n  // Extract plain text for metadata (strip tags)\n  const plainText = window.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');\n\n  const { band, album, type, year } = parseTitle(altText);\n  const { genre, genres, country, quality } = extractMeta(plainText);\n\n  releases.push({\n    json: {\n      artist:    band,\n      track:     album,\n      type,\n      year,\n      genre,\n      genres,\n      country,\n      quality,\n      imageUrl:  coverUrl,\n      sourceUrl: postUrl || 'https://coreradio.online/',\n      fullTitle: altText,\n      scrapedAt: new Date().toISOString()\n    }\n  });\n}\n\nif (releases.length === 0) {\n  // Surface a debug item so you can inspect the raw HTML in n8n\n  return [{ json: { debug: true, htmlSnippet: html.slice(0, 500) } }];\n}\n\nreturn releases;\n"
             },
             "name": "Parse HTML Releases",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [650, 300]
+            "position": [
+                850,
+                300
+            ]
         },
         {
             "parameters": {
-            "jsCode": "// Check for favorite bands\nconst favoriteBands = [\n 'vildhjarta', 'allt', 'imminence', 'karmanjakah', 'humanitys last breath', 'invent animate', 'currents', 'lorna shore', 'peur', 'before i turn', 'spiritbox', 'sleep token', 'bring me the horizon'\n];\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const searchText = (data.artist + ' ' + data.track + ' ' + data.genre).toLowerCase();\n\n  const isFavorite = favoriteBands.some(band => searchText.includes(band.toLowerCase()));\n\n  results.push({\n    json: {\n      ...data,\n      isFavorite: isFavorite,\n      matchReason: isFavorite ? 'Favorite band detected' : 'New release'\n    }\n  });\n}\n\nreturn results;"
+                "jsCode": "// Deduplicate: only pass through releases whose sourceUrl hasn't been seen before.\n// Also persists new URLs back into workflow static data.\n\nconst store    = $getWorkflowStaticData('global');\nconst seenUrls = new Set(store.seenUrls || []);\n\nconst items  = $input.all();\nconst newOnes = [];\n\nfor (const item of items) {\n  const url = item.json.sourceUrl;\n  if (!seenUrls.has(url)) {\n    seenUrls.add(url);\n    newOnes.push(item);\n  }\n}\n\n// Persist updated set (convert back to array for JSON storage)\nstore.seenUrls = Array.from(seenUrls);\n\n// If nothing new, return a single sentinel so downstream nodes don't hang\nif (newOnes.length === 0) {\n  return [{ json: { noNewReleases: true } }];\n}\n\nreturn newOnes;"
+            },
+            "name": "Deduplicate Releases",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1050,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "typeValidation": "loose"
+                    },
+                    "conditions": [
+                        {
+                            "id": "has-artist",
+                            "leftValue": "={{ $json.artist }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                }
+            },
+            "name": "Has New Releases?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                1250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Check for favorite bands\nconst favoriteBands = [\n  'vildhjarta', 'allt', 'imminence', 'karmanjakah',\n  'humanitys last breath', 'invent animate', 'currents',\n  'lorna shore', 'peur', 'before i turn', 'spiritbox',\n  'sleep token', 'bring me the horizon'\n];\n\nconst items   = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data       = item.json;\n  const searchText = (data.artist + ' ' + data.track + ' ' + data.genre).toLowerCase();\n  const isFavorite = favoriteBands.some(band => searchText.includes(band));\n\n  results.push({\n    json: {\n      ...data,\n      isFavorite,\n      matchReason: isFavorite ? 'Favorite band detected' : 'New release'\n    }\n  });\n}\n\nreturn results;"
             },
             "name": "Check Favorites",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [850, 300]
+            "position": [
+                1450,
+                200
+            ]
         },
         {
             "parameters": {
                 "conditions": {
                     "options": {
                         "caseSensitive": true,
-                        "leftValue": "",
                         "typeValidation": "strict"
                     },
                     "conditions": [
                         {
                             "id": "is-favorite",
                             "leftValue": "={{ $json.isFavorite }}",
-                            "rightValue": "true",
+                            "rightValue": true,
                             "operator": {
                                 "type": "boolean",
                                 "operation": "equals"
@@ -89,31 +178,39 @@
             "name": "Filter Favorites",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
-            "position": [1050, 200]
+            "position": [
+                1650,
+                200
+            ]
         },
         {
             "parameters": {
-                "model": "gemini-2.0-flash-exp",
+                "promptType": "define",
+                "text": "=Artist: {{ $json.artist }}\nRelease: {{ $json.track }}\nGenre: {{ $json.genre }}\nCountry: {{ $json.country }}\nYear: {{ $json.year }}\n\nYou are a metal music expert. Write a brief, enthusiastic description (2-3 sentences). Mention the genre, the vibe, and why fans of {{ $json.artist }} or {{ $json.genre }} might enjoy this. Be concise but engaging.",
+                "options": {}
+            },
+            "name": "Basic LLM Chain",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                1850,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "modelName": "models/gemini-2.0-flash-exp",
                 "options": {
                     "temperature": 0.7
-                },
-                "messages": {
-                    "values": [
-                        {
-                            "role": "system",
-                            "content": "You are a metal music expert. Analyze this release and write a brief, enthusiastic description (2-3 sentences). Mention the genre, the vibe, and why fans of {{ $json.artist }} or {{ $json.genre }} might enjoy this. Be concise but engaging."
-                        },
-                        {
-                            "role": "user",
-                            "content": "=Artist: {{ $json.artist }}\nRelease: {{ $json.track }}\nGenre: {{ $json.genre }}\nCountry: {{ $json.country }}\nYear: {{ $json.year }}"
-                        }
-                    ]
                 }
             },
-            "name": "Gemini AI Analysis",
+            "name": "Google Gemini Chat Model",
             "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
             "typeVersion": 1,
-            "position": [1250, 150],
+            "position": [
+                1850,
+                320
+            ],
             "credentials": {
                 "googlePalmApi": {
                     "id": "={{ $env.GEMINI_CREDENTIAL_ID }}",
@@ -124,7 +221,7 @@
         {
             "parameters": {
                 "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "=🎸 *Coreradio Alert!*\n\n*Artist:* {{ $('Check Favorites').item.json.artist }}\n*Release:* {{ $('Check Favorites').item.json.track }}\n*Genre:* {{ $('Check Favorites').item.json.genre }}\n*From:* {{ $('Check Favorites').item.json.country }}\n*Year:* {{ $('Check Favorites').item.json.year }}\n\n🤖 *Why check it out:*\n{{ $json.content }}\n\n🔗 [View on Coreradio]({{ $('Check Favorites').item.json.sourceUrl }})\n\n{{ $('Check Favorites').item.json.imageUrl ? '📸 Cover art available' : '' }}",
+                "text": "=\ud83c\udfb8 *Coreradio Alert!*\n\n*Artist:* {{ $('Check Favorites').item.json.artist }}\n*Release:* {{ $('Check Favorites').item.json.track }}\n*Genre:* {{ $('Check Favorites').item.json.genre }}\n*From:* {{ $('Check Favorites').item.json.country }}\n*Year:* {{ $('Check Favorites').item.json.year }}\n\n\ud83e\udd16 *Why check it out:*\n{{ $json.text }}\n\n\ud83d\udd17 [View on Coreradio]({{ $('Check Favorites').item.json.sourceUrl }})\n\n{{ $('Check Favorites').item.json.imageUrl ? '\ud83d\udcf8 Cover art available' : '' }}",
                 "options": {
                     "parse_mode": "Markdown",
                     "disable_web_page_preview": false
@@ -133,26 +230,33 @@
             "name": "Send Favorite Alert",
             "type": "n8n-nodes-base.telegram",
             "typeVersion": 1.1,
-            "position": [1450, 150],
+            "position": [
+                2100,
+                150
+            ],
             "credentials": {
                 "telegramApi": {
                     "id": "={{ $env.TELEGRAM_CREDENTIAL_ID }}",
                     "name": "={{ $env.TELEGRAM_CREDENTIAL_NAME }}"
                 }
-            }
+            },
+            "notes": "Replace YOUR_CHAT_ID below with your actual Telegram chat ID"
         },
         {
             "parameters": {
                 "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "=📀 *New Coreradio Releases Scraped*\n\nFound {{ $('Parse HTML Releases').item.json.length || 'multiple' }} new releases.\n\n*Latest:* {{ $json.artist }} - {{ $json.track }}\n*Genre:* {{ $json.genre }}\n*From:* {{ $json.country }}\n\n🔗 [View on Coreradio]({{ $json.sourceUrl }})",
+                "text": "=\ud83d\udcc0 *New Coreradio Release*\n\n*Artist:* {{ $json.artist }} - {{ $json.track }}\n*Genre:* {{ $json.genre }}\n*From:* {{ $json.country }}\n*Year:* {{ $json.year }}\n\n\ud83d\udd17 [View on Coreradio]({{ $json.sourceUrl }})",
                 "options": {
                     "parse_mode": "Markdown"
                 }
             },
-            "name": "Send Daily Summary",
+            "name": "Send New Release Summary",
             "type": "n8n-nodes-base.telegram",
             "typeVersion": 1.1,
-            "position": [1250, 400],
+            "position": [
+                1850,
+                400
+            ],
             "credentials": {
                 "telegramApi": {
                     "id": "={{ $env.TELEGRAM_CREDENTIAL_ID }}",
@@ -164,33 +268,120 @@
     "connections": {
         "Schedule Trigger": {
             "main": [
-                [{ "node": "Fetch Coreradio HTML", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Decide Pages To Fetch",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
             ]
         },
-        "Fetch Coreradio HTML": {
+        "Decide Pages To Fetch": {
             "main": [
-                [{ "node": "Parse HTML Releases", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Fetch Coreradio Page",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Coreradio Page": {
+            "main": [
+                [
+                    {
+                        "node": "Parse HTML Releases",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
             ]
         },
         "Parse HTML Releases": {
             "main": [
-                [{ "node": "Check Favorites", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Deduplicate Releases",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Deduplicate Releases": {
+            "main": [
+                [
+                    {
+                        "node": "Has New Releases?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has New Releases?": {
+            "main": [
+                [
+                    {
+                        "node": "Check Favorites",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
             ]
         },
         "Check Favorites": {
             "main": [
-                [{ "node": "Filter Favorites", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Filter Favorites",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
             ]
         },
         "Filter Favorites": {
             "main": [
-                [{ "node": "Gemini AI Analysis", "type": "main", "index": 0 }],
-                [{ "node": "Send Daily Summary", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Basic LLM Chain",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Send New Release Summary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
             ]
         },
-        "Gemini AI Analysis": {
+        "Basic LLM Chain": {
             "main": [
-                [{ "node": "Send Favorite Alert", "type": "main", "index": 0 }]
+                [
+                    {
+                        "node": "Send Favorite Alert",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Gemini Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Basic LLM Chain",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
             ]
         }
     },
