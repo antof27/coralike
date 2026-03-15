@@ -146,7 +146,7 @@
             "parameters": {
                 "jsCode": "// Load favorites from shared static data (managed by the Bot Manager workflow)\nconst store = $getWorkflowStaticData('global');\n\nconst favBands  = store.favBands  || ['Vildhjarta', 'Allt', 'Imminence', 'Karmanjaka', \"Humanity's Last Breath\", 'Invent Animate', 'Currents', 'Lorna Shore', 'Spiritbox', 'Sleep Token', 'Bring Me The Horizon'];\nconst favGenres = store.favGenres || ['Djent', 'Progressive Metalcore', 'Thall', 'Progressive Metal', 'Deathcore', 'Post-Hardcore'];\nconst notGenres = store.notGenres || ['Acoustic', 'Classic Rock', 'Pop Metal', 'Nu Metal', 'Rap Metal'];\n\n// Persist defaults if first time\nif (!store.favBands)  store.favBands  = favBands;\nif (!store.favGenres) store.favGenres = favGenres;\nif (!store.notGenres) store.notGenres = notGenres;\n\nconst items = $input.all();\nconst releases = items.map((item, i) => ({\n  id: i,\n  artist:    item.json.artist,\n  track:     item.json.track,\n  genre:     item.json.genre,\n  country:   item.json.country,\n  year:      item.json.year,\n  sourceUrl: item.json.sourceUrl,\n  imageUrl:  item.json.imageUrl\n}));\n\nreturn [{ json: { releases, favBands, favGenres, notGenres } }];"
             },
-            "name": "Batch Releases For Gemini",
+            "name": "Batch Releases For Groq",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": [
@@ -194,7 +194,7 @@
         },
         {
             "parameters": {
-                "jsCode": "// Parse Gemini's JSON response and emit one item per relevant release\nconst raw = $input.first().json.text || '';\n\nlet relevant = [];\ntry {\n  // Strip markdown fences if present\n  const clean = raw.replace(/```json|```/g, '').trim();\n  relevant = JSON.parse(clean);\n} catch(e) {\n  return [{ json: { error: 'Failed to parse Gemini response', raw } }];\n}\n\nif (!Array.isArray(relevant) || relevant.length === 0) {\n  return [{ json: { noRelevantReleases: true } }];\n}\n\nreturn relevant.map(r => ({ json: r }));"
+                "jsCode": "// Parse Groq's JSON response and emit one item per relevant release\nconst raw = $input.first().json.text || '';\n\nlet relevant = [];\ntry {\n  // Strip markdown fences if present\n  const clean = raw.replace(/```json|```/g, '').trim();\n  relevant = JSON.parse(clean);\n} catch(e) {\n  return [{ json: { error: 'Failed to parse Groq response', raw } }];\n}\n\nif (!Array.isArray(relevant) || relevant.length === 0) {\n  return [{ json: { noRelevantReleases: true } }];\n}\n\nreturn relevant.map(r => ({ json: r }));"
             },
             "name": "Groq Results",
             "type": "n8n-nodes-base.code",
@@ -389,7 +389,7 @@
             "main": [
                 [
                     {
-                        "node": "Batch Releases For Gemini",
+                        "node": "Batch Releases For Groq",
                         "type": "main",
                         "index": 0
                     }
@@ -408,7 +408,7 @@
                 ]
             ]
         },
-        "Batch Releases For Gemini": {
+        "Batch Releases For Groq": {
             "main": [
                 [
                     {
