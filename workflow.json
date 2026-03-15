@@ -138,7 +138,7 @@
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
             "position": [
-                1250,
+                1350,
                 300
             ]
         },
@@ -150,14 +150,14 @@
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": [
-                1450,
+                1550,
                 200
             ]
         },
         {
             "parameters": {
                 "promptType": "define",
-                "text": "=You are a metal music curator. A listener's taste profile:\n- Favorite bands: Vildhjarta, Allt, Imminence, Karmanjaka, Humanity's Last Breath, Invent Animate, Currents, Lorna Shore, Spiritbox, Sleep Token, Bring Me The Horizon\n- Favorite genres: Djent, Progressive Metalcore, thall, progressive progressive metal\n- NOT interested in: pure Acoustic, Classic Rock, Pop Metal, Nu Metal, Rap Metal\n\nHere are the new releases to evaluate:\n{{ JSON.stringify($json.releases) }}\n\nReturn ONLY a JSON array of the releases this listener would genuinely enjoy. For each, include:\n- id (original id from input)\n- artist\n- track\n- genre\n- country\n- year\n- sourceUrl\n- imageUrl\n- description (2 sentences, enthusiastic, why they'd like it)\n\nIf none are relevant, return an empty array [].\nReturn raw JSON only, no markdown, no explanation.",
+                "text": "=You are a metal music curator. A listener's taste profile:\n- Favorite bands: Vildhjarta, Allt, Imminence, Karmanjaka, Humanity's Last Breath, Invent Animate, Currents, Lorna Shore, Spiritbox, Sleep Token, Bring Me The Horizon\n- Favorite genres: Djent, Progressive Metalcore, Deathcore, Post-Hardcore, Heavy Electronic Metal\n- NOT interested in: pure Acoustic, Classic Rock, Pop Metal, Nu Metal, Rap Metal\n\nHere are the new releases to evaluate:\n{{ JSON.stringify($json.releases) }}\n\nReturn ONLY a JSON array of the releases this listener would genuinely enjoy. For each, include:\n- id (original id from input)\n- artist\n- track\n- genre\n- country\n- year\n- sourceUrl\n- imageUrl\n- description (2 sentences, enthusiastic, why they'd like it)\n\nIf none are relevant, return an empty array [].\nReturn raw JSON only, no markdown, no explanation.",
                 "options": {}
             },
             "name": "Basic LLM Chain",
@@ -224,6 +224,18 @@
                     "name": "={{ $env.GROQ_CREDENTIAL_NAME }}"
                 }
             }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Collect all items from all pages into one batch.\n// If all items are sentinels (noNewReleases), emit a single sentinel.\n// Otherwise emit a single item with all new releases combined.\n\nconst items = $input.all();\nconst newReleases = items.filter(item => !item.json.noNewReleases);\n\nif (newReleases.length === 0) {\n  return [{ json: { noNewReleases: true } }];\n}\n\n// Emit individual items (one per release) so Has New Releases? works correctly\nreturn newReleases;"
+            },
+            "name": "Aggregate New Releases",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1150,
+                300
+            ]
         }
     ],
     "connections": {
@@ -275,7 +287,7 @@
             "main": [
                 [
                     {
-                        "node": "Has New Releases?",
+                        "node": "Aggregate New Releases",
                         "type": "main",
                         "index": 0
                     }
@@ -345,6 +357,17 @@
                     {
                         "node": "Basic LLM Chain",
                         "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Aggregate New Releases": {
+            "main": [
+                [
+                    {
+                        "node": "Has New Releases?",
+                        "type": "main",
                         "index": 0
                     }
                 ]
