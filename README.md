@@ -99,7 +99,7 @@ WEBHOOK_URL=https://your-public-url/
 
 ## Default taste profile
 
-Ships with my personal defaults — change them anytime via the bot:
+Ships with my personal defaults, change them anytime via the bot:
 
 **Favorite bands:** Vildhjarta, Allt, Imminence, Karmanjaka, Humanity's Last Breath, Invent Animate, Currents, Lorna Shore, Spiritbox, Sleep Token, Bring Me The Horizon
 
