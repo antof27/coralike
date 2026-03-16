@@ -43,7 +43,7 @@ Schedule Trigger
   → Has New Releases?           # stops here if nothing new
   → Batch Releases For Groq     # loads taste profile from static data
   → Basic LLM Chain (Groq)      # one AI call for the whole batch
-  → Split Results               # parses response, one item per release
+  → Groq Results                 # parses response, one item per release
   → Send Favorite Alert         # Telegram message for each match
 
 ── BOT MANAGER (always listening) ───────────────────────────────────────────
